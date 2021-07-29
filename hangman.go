@@ -2,7 +2,10 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
+	"flag"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"os"
 	"strings"
@@ -13,7 +16,6 @@ type Hangman struct {
 	Attempts   uint8
 	WordToFind string
 	ToRev      []int
-	StockChar  []string
 }
 
 // isInside returns true if a value (int) is at least one time in a aray (of int) othertwise it returns false
@@ -63,11 +65,41 @@ func printWordProgress(wordToFind *string, toRev *[]int) {
 	fmt.Println()
 }
 
+// saveGame write to save.txt the status of the game
+func saveGame(status Hangman) {
+	saveContent := Marshal(status)
+	err := ioutil.WriteFile("save.txt", saveContent, 0777)
+	checkError(err)
+	fmt.Println("Game Saved in save.txt.")
+}
+
+// Marshal returns the JSON encoding of Hangman
+func Marshal(status Hangman) []byte {
+	b, err := json.Marshal(status)
+	checkError(err)
+	return b
+}
+
+//Unmarshal parses the JSON-encoded data and stores the result in the value pointed to by Hangman
+func UnMarshal(data []byte) Hangman {
+	var status Hangman
+	err := json.Unmarshal(data, &status)
+	checkError(err)
+	return status
+}
+
 // checkError checks if the error is different from nil otherwise displays error
 func checkError(e error) {
 	if e != nil {
 		panic(e)
 	}
+}
+
+// getSave return the file saves
+func getSave(saveFilename *string) Hangman {
+	content, err := ioutil.ReadFile(*saveFilename)
+	checkError(err)
+	return UnMarshal(content)
 }
 
 //readFile returns an array of string which is the same as the file (line = line) without useless lines
@@ -88,23 +120,13 @@ func readFile(Filename string) []string {
 
 // Open file to get random word
 func randomWord() string {
-	words := readFile(os.Args[1])
+	words := readFile(flag.Args()[0])
 	return strings.ToUpper(words[rand.Intn(len(words))])
 }
 
 func testWord(status *Hangman, UserTry *string) (valid bool, elem string) {
 	// If the user entry is a char
 	if len(*UserTry) <= 1 {
-
-		AllChar := strings.Join(status.StockChar, "")
-		// Add the char to StockChar
-		if !isInsideChar(UserTry, &AllChar) {
-			status.StockChar = append(status.StockChar, *UserTry)
-		} else {
-			fmt.Println("Already try", *UserTry)
-			return false, "char"
-		}
-
 		if isInsideChar(UserTry, &status.WordToFind) {
 			for index, char := range status.WordToFind {
 				if string(char) == *UserTry {
@@ -129,42 +151,62 @@ func testWord(status *Hangman, UserTry *string) (valid bool, elem string) {
 }
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	// set saveFilename as flag string vars
+	var saveFilename string
 
-	// Check if user provide file containing words
-	if len(os.Args[1:]) <= 0 {
-		fmt.Println("Missing files of words.")
-		return
-	}
+	// StringVar defines a string flag with specified name, default value, and usage string
+	// The argument saveFilename points to a string variable in which to store the value of the flag.
+	flag.StringVar(&saveFilename, "startWith", "", "Specifie the filename of the save to load")
+
+	// parse flags from command line
+	flag.Parse()
+
+	fmt.Println(saveFilename)
+
+	rand.Seed(time.Now().UnixNano())
 
 	// Get hangman
 	hangman := readFile("hangman.txt")
 
-	// Retrieve the chosen random word
-	wordToFind := randomWord()
+	var status Hangman
 
-	// Number of letter to reveal
-	reveal := len(wordToFind)/2 - 1
+	if saveFilename != "" {
+		status = getSave(&saveFilename)
+		fmt.Println("Welcome Back, you have", 10-status.Attempts, "attempts remaining.")
+	} else {
 
-	var toRev []int
-	if reveal > 0 {
-		var randInt int
+		// Check if user provide file containing words
+		if len(flag.Args()) <= 0 {
+			fmt.Println("Missing files of words.")
+			return
+		}
+		// Retrieve the chosen random word
+		wordToFind := randomWord()
+		for wordToFind == "STOP" {
+			wordToFind = randomWord()
+		}
 
-		for i := 0; i < reveal; i++ {
-			randInt = rand.Intn(len(wordToFind))
+		// Number of letter to reveal
+		reveal := len(wordToFind)/2 - 1
 
-			if !isInside(&randInt, &toRev) {
-				toRev = append(toRev, randInt)
-			} else {
-				i--
+		var toRev []int
+		if reveal > 0 {
+			var randInt int
+
+			for i := 0; i < reveal; i++ {
+				randInt = rand.Intn(len(wordToFind))
+
+				if !isInside(&randInt, &toRev) {
+					toRev = append(toRev, randInt)
+				} else {
+					i--
+				}
 			}
 		}
+		status = Hangman{Attempts: 0, WordToFind: wordToFind, ToRev: toRev}
+		fmt.Println("Good luck, you have 10 attempts.")
 	}
-
-	status := Hangman{Attempts: 0, WordToFind: wordToFind, ToRev: toRev, StockChar: []string{}}
-
-	fmt.Println("Good luck, you have 10 attempts.")
-	printWordProgress(&wordToFind, &toRev)
+	printWordProgress(&status.WordToFind, &status.ToRev)
 
 	var UserTry string
 
@@ -173,6 +215,12 @@ func main() {
 		fmt.Print("Choose: ")
 		fmt.Scanln(&UserTry)
 		UserTry = strings.ToUpper(UserTry)
+
+		if UserTry == "STOP" {
+			//call save func and exit
+			saveGame(status)
+			os.Exit(0)
+		}
 
 		// Test if user input match something in the word
 		valid, elem := testWord(&status, &UserTry)
