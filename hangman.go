@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+type Hangman struct {
+	Attempts   uint8
+	WordToFind string
+	ToRev      []int
+	StockChar  []string
+}
+
 // isInside returns true if a value (int) is at least one time in a aray (of int) othertwise it returns false
 func isInside(value *int, arr *[]int) bool {
 	for _, elem := range *arr {
@@ -19,9 +26,19 @@ func isInside(value *int, arr *[]int) bool {
 	return false
 }
 
+// isInside returns true if a value (int) is at least one time in a aray (of int) othertwise it returns false
+func isInsideChar(value *string, s *string) bool {
+	for _, elem := range *s {
+		if string(elem) == *value {
+			return true
+		}
+	}
+	return false
+}
+
 // printHangman prints to console the hangman at a given status
 func printHangman(hangman []string, status *uint8) {
-	for i := (*status * 7); i < (*status*7)+7; i++ {
+	for i := ((*status - 1) * 7); i < ((*status-1)*7)+7; i++ {
 		fmt.Println(hangman[i])
 	}
 	fmt.Println()
@@ -69,7 +86,51 @@ func readFile(Filename string) []string {
 	return source
 }
 
+// Open file to get random word
+func randomWord() string {
+	words := readFile(os.Args[1])
+	return strings.ToUpper(words[rand.Intn(len(words))])
+}
+
+func testWord(status *Hangman, UserTry *string) (valid bool, elem string) {
+	// If the user entry is a char
+	if len(*UserTry) <= 1 {
+
+		AllChar := strings.Join(status.StockChar, "")
+		// Add the char to StockChar
+		if !isInsideChar(UserTry, &AllChar) {
+			status.StockChar = append(status.StockChar, *UserTry)
+		} else {
+			fmt.Println("Already try", *UserTry)
+			return false, "char"
+		}
+
+		if isInsideChar(UserTry, &status.WordToFind) {
+			for index, char := range status.WordToFind {
+				if string(char) == *UserTry {
+					if !isInside(&index, &status.ToRev) {
+						status.ToRev = append(status.ToRev, index)
+					}
+				}
+			}
+			return true, "char"
+		} else {
+			status.Attempts++
+			return false, "char"
+		}
+	} else { //If it's a word
+		if *UserTry == status.WordToFind {
+			return true, "word"
+		} else {
+			status.Attempts += 2
+			return false, "word"
+		}
+	}
+}
+
 func main() {
+	rand.Seed(time.Now().UnixNano())
+
 	// Check if user provide file containing words
 	if len(os.Args[1:]) <= 0 {
 		fmt.Println("Missing files of words.")
@@ -79,10 +140,8 @@ func main() {
 	// Get hangman
 	hangman := readFile("hangman.txt")
 
-	// Open file to get word
-	rand.Seed(time.Now().UnixNano())
-	words := readFile(os.Args[1])
-	wordToFind := strings.ToUpper(words[rand.Intn(len(words))])
+	// Retrieve the chosen random word
+	wordToFind := randomWord()
 
 	// Number of letter to reveal
 	reveal := len(wordToFind)/2 - 1
@@ -102,60 +161,44 @@ func main() {
 		}
 	}
 
+	status := Hangman{Attempts: 0, WordToFind: wordToFind, ToRev: toRev, StockChar: []string{}}
+
 	fmt.Println("Good luck, you have 10 attempts.")
 	printWordProgress(&wordToFind, &toRev)
 
-	var userInput string
-	var attempts uint8
-	var charInside bool
+	var UserTry string
 
-	for attempts != 10 {
-		charInside = false
+	for status.Attempts != 10 {
 		// Get user input
 		fmt.Print("Choose: ")
-		fmt.Scanln(&userInput)
+		fmt.Scanln(&UserTry)
+		UserTry = strings.ToUpper(UserTry)
 
-		userInput = strings.ToUpper(userInput)
-		if len(userInput) > 1 {
-			if userInput == wordToFind {
-				fmt.Println("Congrats !")
-				break
-			} else {
-				attempts += 2
-			}
-		}
+		// Test if user input match something in the word
+		valid, elem := testWord(&status, &UserTry)
 
-		// Check is choosen letter is in the word
-		for index, char := range wordToFind {
-			if strings.EqualFold(string(char), userInput) {
-				if !isInside(&index, &toRev) {
-					toRev = append(toRev, index)
-				}
-				charInside = true
-			}
-		}
-
-		// Si lettre proposé non pas dans mot
-		if !charInside {
-			fmt.Println("Not present in the word,", 10-attempts-1, "attempts remaining")
-
-			// Display Hangman
-			printHangman(hangman, &attempts)
-			attempts++
-		} else {
-			// Print word progess
-			printWordProgress(&wordToFind, &toRev)
-		}
-
-		// If word found
-		if len(toRev) == len(wordToFind) {
+		if valid && elem == "word" {
 			fmt.Println("Congrats !")
 			break
+		} else if valid && elem == "char" {
+			printWordProgress(&status.WordToFind, &status.ToRev)
+
+			if len(status.ToRev) == len(status.WordToFind) {
+				fmt.Println("Congrats !")
+				break
+			}
+		} else {
+			fmt.Println("Not present in the word,", 10-status.Attempts, "attempts remaining")
+			if status.Attempts > 10 {
+				status.Attempts = 10
+			}
+			printHangman(hangman, &status.Attempts)
 		}
 	}
 
-	// Si nombre d'essai max atteint
-	if attempts == 10 {
+	// If the maximum number of try reached
+	if status.Attempts == 10 {
 		fmt.Println("Failed")
+		fmt.Println("Word to find was", status.WordToFind)
 	}
 }
