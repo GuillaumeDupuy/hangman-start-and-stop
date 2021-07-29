@@ -1,1 +1,3 @@
-# hangman-start-and-stop
+# hangman-advanced-features
+
+> Made by Guillaume, Antoine and Sofiane
